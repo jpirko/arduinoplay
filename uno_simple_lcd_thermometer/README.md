@@ -24,11 +24,11 @@ $ platformio device monitor
 ## Wiring
 
 ```
-UNO PIN 5V ----- DS18B20 PIN 1 (VDD)
+UNO PIN 5V ----- DS18B20 PIN 3 (VDD)
 UNO PIN 2 ------ DS18B20 PIN 2 (DQ)
-UNO PIN GND ---- DS18B20 PIN 3 (GND)
+UNO PIN GND ---- DS18B20 PIN 1 (GND)
 
-DS18B20 PIN 2 (DQ) ---- 4k7 Ohm pull-up resistor ---- DS18B20 PIN 1 (VDD)
+DS18B20 PIN 2 (DQ) ---- 4k7 Ohm pull-up resistor ---- DS18B20 PIN 3 (VDD)
 
 UNO PIN 5V ----- LCD PIN VCC
 UNO PIN GND ---- LCD PIN GND
