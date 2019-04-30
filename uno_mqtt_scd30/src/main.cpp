@@ -32,8 +32,7 @@ SCD30 airSensor;
 EthernetClient ethClient;
 PubSubClient client(ethClient);
 
-char name[3];
-//String name("unotest");
+char name[13];
 
 #define topic_gen(item) (String(name) + "/" + (item))
 
