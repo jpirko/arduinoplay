@@ -27,7 +27,8 @@
 EthernetClient ethClient;
 PubSubClient client(ethClient);
 
-char name[13];
+#define NAME_SIZE 16
+char name[NAME_SIZE];
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -458,7 +459,8 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0xe17ab813;
+uint32_t eeprom_magic = 0xe17ac813;
+char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
 IPAddress eeprom_default_mqttip = IPAddress(172, 22, 1, 1);
@@ -473,7 +475,10 @@ uint8_t eeprom_default_threshold = 16;
 #define MAC_LEN sizeof(eeprom_default_mac)
 #define IP_LEN sizeof(IPAddress)
 
-#define EEPROM_MAC_OFFSET EEPROM_MAGIC_OFFSET + EEPROM_MAGIC_SIZE
+#define EEPROM_NAME_OFFSET EEPROM_MAGIC_OFFSET + EEPROM_MAGIC_SIZE
+#define EEPROM_NAME_SIZE NAME_SIZE
+
+#define EEPROM_MAC_OFFSET EEPROM_NAME_OFFSET + EEPROM_NAME_SIZE
 #define EEPROM_MAC_SIZE MAC_LEN
 
 #define EEPROM_IP_OFFSET EEPROM_MAC_OFFSET + EEPROM_MAC_SIZE
@@ -498,6 +503,7 @@ void eeprom_check(void)
 
 	Serial.println("DEFAULTS!");
 	EEPROM.put(EEPROM_MAGIC_OFFSET, eeprom_magic);
+	EEPROM.put(EEPROM_NAME_OFFSET, eeprom_default_name);
 	EEPROM.put(EEPROM_MAC_OFFSET, eeprom_default_mac);
 	EEPROM.put(EEPROM_IP_OFFSET, eeprom_default_ip);
 	EEPROM.put(EEPROM_MQTTIP_OFFSET, eeprom_default_mqttip);
@@ -505,17 +511,29 @@ void eeprom_check(void)
 	EEPROM.put(EEPROM_THRESHOLD_OFFSET, eeprom_default_threshold);
 }
 
-void payload_mac_to_eeprom(int offset, int size, byte *payload,
-			   int length, bool hex)
+void payload_mac_to_eeprom(int offset, int size, byte *payload, int length)
 {
 	char *pos = (char *) payload;
 	uint8_t i;
 
 	for (i = 0; i < 6; i++) {
-		EEPROM.write(offset + i, strtol(pos, &pos, hex ? 16 : 10));
+		EEPROM.write(offset + i, strtol(pos, &pos, 16));
 		pos++;
 		if (pos >= (char *) payload + length)
 			return;
+	}
+}
+
+void str_to_eeprom(int offset, int size, byte *payload, int length)
+{
+	char *pos = (char *) payload;
+	uint8_t i;
+
+	for (i = 0; i < size; i++) {
+		if (i + 1 == size || i >= length)
+			EEPROM.write(offset + i, 0);
+		else
+			EEPROM.write(offset + i, *pos++);
 	}
 }
 
@@ -523,9 +541,12 @@ void callback(char *topic, byte *payload, unsigned int length)
 {
 	payload[length] = '\0';
 
-	if (String(topic) == config_topic("mac")) {
+	if (String(topic) == config_topic("name")) {
+		str_to_eeprom(EEPROM_NAME_OFFSET, EEPROM_NAME_SIZE,
+			      payload, length);
+	} else if (String(topic) == config_topic("mac")) {
 		payload_mac_to_eeprom(EEPROM_MAC_OFFSET, EEPROM_MAC_SIZE,
-				      payload, length, true);
+				      payload, length);
 	} else if (String(topic) == config_topic("ip")) {
 		IPAddress ip;
 
@@ -555,6 +576,7 @@ void setup(void)
 {
 	byte mac[MAC_LEN];
 	IPAddress mqttip;
+	char macstr[13];
 	IPAddress ip;
 
 	Serial.begin(9600);
@@ -562,12 +584,15 @@ void setup(void)
 
 	eeprom_check();
 
+	EEPROM.get(EEPROM_NAME_OFFSET, name);
+	Serial.println("NAME:" + String(name));
+
 	EEPROM.get(EEPROM_MAC_OFFSET, mac);
 	mac[0] &= 0xfe; /* Clear multicast bit. */
 	mac[0] |= 0x02; /* Set local assignment bit. */
 
-	sprintf(name, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	Serial.println("NAME:" + String(name));
+	sprintf(macstr, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	Serial.println("MAC:" + String(macstr));
 
 	EEPROM.get(EEPROM_IP_OFFSET, ip);
 	Serial.print("IP:");
@@ -615,6 +640,7 @@ void loop(void)
 				mqtt_connected = true;
 				input_pins_update_state();
 				input_pins_publish(false);
+				client.subscribe(config_topic("name").c_str());
 				client.subscribe(config_topic("mac").c_str());
 				client.subscribe(config_topic("ip").c_str());
 				client.subscribe(config_topic("mqttip").c_str());
