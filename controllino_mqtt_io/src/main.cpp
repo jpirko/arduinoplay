@@ -27,7 +27,7 @@
 EthernetClient ethClient;
 PubSubClient client(ethClient);
 
-#define NAME_SIZE 16
+#define NAME_SIZE 20
 char name[NAME_SIZE];
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -459,7 +459,7 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0xe17ac813;
+uint32_t eeprom_magic = 0xf17ac813;
 char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
