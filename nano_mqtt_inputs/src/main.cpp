@@ -26,7 +26,7 @@
 EthernetClient ethClient;
 PubSubClient client(ethClient);
 
-#define NAME_SIZE 16
+#define NAME_SIZE 20
 char name[NAME_SIZE];
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -37,7 +37,7 @@ enum pin_type {
 	PIN_TYPE_DIGITAL_AX_INPUT,
 };
 
-String pin_type_subtopic[] = {
+const char *pin_type_subtopic[] = {
 	[PIN_TYPE_DIGITAL_INPUT] = "/din/D",
 	[PIN_TYPE_DIGITAL_A_INPUT] = "/din/A",
 	[PIN_TYPE_DIGITAL_AX_INPUT] = "/din/A",
@@ -95,22 +95,28 @@ struct pin pins[] = {
 #define for_each_pin(pin, i)								\
 	for (i = 0, pin = &pins[i]; i < PINS_COUNT; pin = &pins[++i])
 
-String pin_topic(struct pin *pin)
+#define TMP_BUF_LEN 64
+char tmp_buf[TMP_BUF_LEN];
+
+char *pin_topic(struct pin *pin)
 {
-	return String(name) + pin_type_subtopic[pin->type] + pin->index;
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/%s/%d", name,
+		 pin_type_subtopic[pin->type], pin->index);
+	return tmp_buf;
 }
 
-String config_topic(String item)
+char *config_topic(const char *item)
 {
-	return String(name) + "/config/" + item;
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/config/%s", name, item);
+	return tmp_buf;
 }
 
 void pin_publish(struct pin *pin)
 {
 	char state_buf[16];
 
-	String(pin->state).toCharArray(state_buf, sizeof(state_buf));
-	client.publish(pin_topic(pin).c_str(), state_buf);
+	sprintf(state_buf, "%u", pin->state);
+	client.publish(pin_topic(pin), state_buf);
 }
 
 void input_pins_update_state()
@@ -184,7 +190,7 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0x4b8e2a8f;
+uint32_t eeprom_magic = 0x3b1e2e8a;
 char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
@@ -260,24 +266,25 @@ void callback(char *topic, byte *payload, unsigned int length)
 {
 	payload[length] = '\0';
 
+	Serial.println("callback");
 	digitalWrite(LED_BUILTIN, HIGH);
-	if (String(topic) == config_topic("name")) {
+	if (!strcmp(topic, config_topic("name"))) {
 		str_to_eeprom(EEPROM_NAME_OFFSET, EEPROM_NAME_SIZE,
 			      payload, length);
-	} else if (String(topic) == config_topic("mac")) {
+	} else if (!strcmp(topic, config_topic("mac"))) {
 		payload_mac_to_eeprom(EEPROM_MAC_OFFSET, EEPROM_MAC_SIZE,
 				      payload, length);
-	} else if (String(topic) == config_topic("ip")) {
+	} else if (!strcmp(topic, config_topic("ip"))) {
 		IPAddress ip;
 
 		if (ip.fromString((const char *) payload))
 			EEPROM.put(EEPROM_IP_OFFSET, ip);
-	} else if (String(topic) == config_topic("mqttip")) {
+	} else if (!strcmp(topic, config_topic("mqttip"))) {
 		IPAddress mqttip;
 
 		if (mqttip.fromString((const char *) payload))
 			EEPROM.put(EEPROM_MQTTIP_OFFSET, mqttip);
-	} else if (String(topic) == config_topic("filter")) {
+	} else if (!strcmp(topic, config_topic("filter"))) {
 		uint32_t filter = strtol((const char *) payload, NULL, 10);
 
 		if (filter < EEPROM_FILTER_MAX)
@@ -299,14 +306,16 @@ void setup(void)
 	eeprom_check();
 
 	EEPROM.get(EEPROM_NAME_OFFSET, name);
-	Serial.println("NAME:" + String(name));
+	Serial.print("NAME:");
+	Serial.println(name);
 
 	EEPROM.get(EEPROM_MAC_OFFSET, mac);
 	mac[0] &= 0xfe; /* Clear multicast bit. */
 	mac[0] |= 0x02; /* Set local assignment bit. */
 
 	sprintf(macstr, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	Serial.println("MAC:" + String(macstr));
+	Serial.print("MAC:");
+	Serial.println(macstr);
 
 	EEPROM.get(EEPROM_IP_OFFSET, ip);
 	Serial.print("IP:");
@@ -317,7 +326,8 @@ void setup(void)
 	print_ip(mqttip);
 
 	EEPROM.get(EEPROM_FILTER_OFFSET, input_filter);
-	Serial.println("FILTER:" + (String) input_filter);
+	Serial.print("FILTER:");
+	Serial.println(input_filter);
 
 	Ethernet.begin(mac, ip);
 	pins_init();
@@ -351,11 +361,11 @@ void loop(void)
 				mqtt_connected = true;
 				input_pins_update_state();
 				input_pins_publish(false);
-				client.subscribe(config_topic("name").c_str());
-				client.subscribe(config_topic("mac").c_str());
-				client.subscribe(config_topic("ip").c_str());
-				client.subscribe(config_topic("mqttip").c_str());
-				client.subscribe(config_topic("filter").c_str());
+				client.subscribe(config_topic("name"));
+				client.subscribe(config_topic("mac"));
+				client.subscribe(config_topic("ip"));
+				client.subscribe(config_topic("mqttip"));
+				client.subscribe(config_topic("filter"));
 			}
 		}
 	} else {
