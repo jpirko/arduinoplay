@@ -41,7 +41,7 @@ enum pin_type {
 	PIN_TYPE_DIGITAL_INPUT_IN,
 };
 
-String pin_type_subtopic[] = {
+const char *pin_type_subtopic[] = {
 	[PIN_TYPE_RELAY] = "/relay/",
 	[PIN_TYPE_DIGITAL_OUTPUT] = "/dout/",
 	[PIN_TYPE_PWM_OUTPUT] = "/pwmout/",
@@ -316,22 +316,28 @@ struct pin pins[] = {
 #define for_each_pin(pin, i)								\
 	for (i = 0, pin = &pins[i]; i < PINS_COUNT; pin = &pins[++i])
 
-String pin_topic(struct pin *pin)
+#define TMP_BUF_LEN 64
+char tmp_buf[TMP_BUF_LEN];
+
+char *pin_topic(struct pin *pin)
 {
-	return String(name) + pin_type_subtopic[pin->type] + pin->index;
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/%s/%d", name,
+		 pin_type_subtopic[pin->type], pin->index);
+	return tmp_buf;
 }
 
-String config_topic(String item)
+char *config_topic(const char *item)
 {
-	return String(name) + "/config/" + item;
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/config/%s", name, item);
+	return tmp_buf;
 }
 
 void pin_publish(struct pin *pin)
 {
 	char state_buf[16];
 
-	String(pin->state).toCharArray(state_buf, sizeof(state_buf));
-	client.publish(pin_topic(pin).c_str(), state_buf);
+	sprintf(state_buf, "%u", pin->state);
+	client.publish(pin_topic(pin), state_buf);
 }
 
 void input_pins_update_state()
@@ -416,14 +422,14 @@ void output_pin_update_state(struct pin *pin, word new_state)
 	}
 }
 
-void pins_msg_process(String topic, String value)
+void pins_msg_process(const char *topic, const char *value)
 {
 	struct pin *pin;
 	unsigned int i;
 
 	for_each_pin(pin, i) {
-		if (pin_type_output(pin) && pin_topic(pin) == topic)
-			output_pin_update_state(pin, value.toInt());
+		if (pin_type_output(pin) && !strcmp(topic, pin_topic(pin)))
+			output_pin_update_state(pin, strtol(value, NULL, 10));
 	}
 }
 
@@ -434,7 +440,7 @@ void pins_subscribe(void)
 
 	for_each_pin(pin, i) {
 		if (pin_type_output(pin))
-			client.subscribe((pin_topic(pin)).c_str());
+			client.subscribe(pin_topic(pin));
 	}
 }
 
@@ -545,34 +551,34 @@ void callback(char *topic, byte *payload, unsigned int length)
 {
 	payload[length] = '\0';
 
-	if (String(topic) == config_topic("name")) {
+	if (!strcmp(topic, config_topic("name"))) {
 		str_to_eeprom(EEPROM_NAME_OFFSET, EEPROM_NAME_SIZE,
 			      payload, length);
-	} else if (String(topic) == config_topic("mac")) {
+	} else if (!strcmp(topic, config_topic("mac"))) {
 		payload_mac_to_eeprom(EEPROM_MAC_OFFSET, EEPROM_MAC_SIZE,
 				      payload, length);
-	} else if (String(topic) == config_topic("ip")) {
+	} else if (!strcmp(topic, config_topic("ip"))) {
 		IPAddress ip;
 
 		if (ip.fromString((const char *) payload))
 			EEPROM.put(EEPROM_IP_OFFSET, ip);
-	} else if (String(topic) == config_topic("mqttip")) {
+	} else if (!strcmp(topic, config_topic("mqttip"))) {
 		IPAddress mqttip;
 
 		if (mqttip.fromString((const char *) payload))
 			EEPROM.put(EEPROM_MQTTIP_OFFSET, mqttip);
-	} else if (String(topic) == config_topic("filter")) {
+	} else if (!strcmp(topic, config_topic("filter"))) {
 		uint32_t filter = strtol((const char *) payload, NULL, 10);
 
 		if (filter < EEPROM_FILTER_MAX)
 			EEPROM.put(EEPROM_FILTER_OFFSET, filter);
-	} else if (String(topic) == config_topic("threshold")) {
+	} else if (!strcmp(topic, config_topic("threshold"))) {
 		uint32_t threshold = strtol((const char *) payload, NULL, 10);
 
 		if (threshold < EEPROM_THRESHOLD_MAX)
 			EEPROM.put(EEPROM_THRESHOLD_OFFSET, threshold);
 	} else {
-		pins_msg_process(String(topic), String((char *) payload));
+		pins_msg_process(topic, (const char *) payload);
 	}
 }
 
@@ -589,14 +595,16 @@ void setup(void)
 	eeprom_check();
 
 	EEPROM.get(EEPROM_NAME_OFFSET, name);
-	Serial.println("NAME:" + String(name));
+	Serial.print("NAME:");
+	Serial.println(name);
 
 	EEPROM.get(EEPROM_MAC_OFFSET, mac);
 	mac[0] &= 0xfe; /* Clear multicast bit. */
 	mac[0] |= 0x02; /* Set local assignment bit. */
 
 	sprintf(macstr, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	Serial.println("MAC:" + String(macstr));
+	Serial.print("MAC:");
+	Serial.println(macstr);
 
 	EEPROM.get(EEPROM_IP_OFFSET, ip);
 	Serial.print("IP:");
@@ -607,10 +615,12 @@ void setup(void)
 	print_ip(mqttip);
 
 	EEPROM.get(EEPROM_FILTER_OFFSET, input_filter);
-	Serial.println("FILTER:" + (String) input_filter);
+	Serial.print("FILTER:");
+	Serial.println(input_filter);
 
 	EEPROM.get(EEPROM_THRESHOLD_OFFSET, input_threshold);
-	Serial.println("THRESHOLD:" + (String) input_threshold);
+	Serial.print("THRESHOLD:");
+	Serial.println(input_threshold);
 
 	Ethernet.begin(mac, ip);
 	pins_init();
@@ -644,12 +654,12 @@ void loop(void)
 				mqtt_connected = true;
 				input_pins_update_state();
 				input_pins_publish(false);
-				client.subscribe(config_topic("name").c_str());
-				client.subscribe(config_topic("mac").c_str());
-				client.subscribe(config_topic("ip").c_str());
-				client.subscribe(config_topic("mqttip").c_str());
-				client.subscribe(config_topic("filter").c_str());
-				client.subscribe(config_topic("threshold").c_str());
+				client.subscribe(config_topic("name"));
+				client.subscribe(config_topic("mac"));
+				client.subscribe(config_topic("ip"));
+				client.subscribe(config_topic("mqttip"));
+				client.subscribe(config_topic("filter"));
+				client.subscribe(config_topic("threshold"));
 				pins_subscribe();
 			}
 		}
