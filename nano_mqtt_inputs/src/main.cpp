@@ -38,9 +38,9 @@ enum pin_type {
 };
 
 const char *pin_type_subtopic[] = {
-	[PIN_TYPE_DIGITAL_INPUT] = "/din/D",
-	[PIN_TYPE_DIGITAL_A_INPUT] = "/din/A",
-	[PIN_TYPE_DIGITAL_AX_INPUT] = "/din/A",
+	[PIN_TYPE_DIGITAL_INPUT] = "din/D",
+	[PIN_TYPE_DIGITAL_A_INPUT] = "din/A",
+	[PIN_TYPE_DIGITAL_AX_INPUT] = "din/A",
 };
 
 struct pin {
