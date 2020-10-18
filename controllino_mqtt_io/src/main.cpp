@@ -42,12 +42,12 @@ enum pin_type {
 };
 
 const char *pin_type_subtopic[] = {
-	[PIN_TYPE_RELAY] = "/relay/",
-	[PIN_TYPE_DIGITAL_OUTPUT] = "/dout/",
-	[PIN_TYPE_PWM_OUTPUT] = "/pwmout/",
-	[PIN_TYPE_DIGITAL_INPUT] = "/din/",
-	[PIN_TYPE_ANALOG_INPUT] = "/ain/",
-	[PIN_TYPE_DIGITAL_INPUT_IN] = "/dinin/",
+	[PIN_TYPE_RELAY] = "relay",
+	[PIN_TYPE_DIGITAL_OUTPUT] = "dout",
+	[PIN_TYPE_PWM_OUTPUT] = "pwmout",
+	[PIN_TYPE_DIGITAL_INPUT] = "din",
+	[PIN_TYPE_ANALOG_INPUT] = "ain",
+	[PIN_TYPE_DIGITAL_INPUT_IN] = "dinin",
 };
 
 struct pin {
