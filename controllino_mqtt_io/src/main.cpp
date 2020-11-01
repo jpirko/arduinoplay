@@ -22,10 +22,17 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <EEPROM.h>
 
 EthernetClient ethClient;
 PubSubClient client(ethClient);
+
+#define ONE_WIRE_BUS 20
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
 
 #define NAME_SIZE 20
 char name[NAME_SIZE];
@@ -316,7 +323,7 @@ struct pin pins[] = {
 #define for_each_pin(pin, i)								\
 	for (i = 0, pin = &pins[i]; i < PINS_COUNT; pin = &pins[++i])
 
-#define TMP_BUF_LEN 64
+#define TMP_BUF_LEN 128
 char tmp_buf[TMP_BUF_LEN];
 
 char *pin_topic(struct pin *pin)
@@ -364,6 +371,7 @@ void input_pins_update_state()
 
 uint8_t input_filter;
 uint8_t input_threshold;
+uint32_t temp_interval;
 
 void input_pins_publish(bool changed_only)
 {
@@ -457,6 +465,137 @@ void pins_init(void)
 	}
 }
 
+static void ow_temp_init(void)
+{
+	sensors.begin();
+	sensors.setWaitForConversion(false);
+}
+
+struct ow_temp_device {
+	DeviceAddress address;
+};
+
+#define OW_TEMP_DEVICE_MAX 16
+
+struct ow_temp {
+	bool read_in_progress;
+	unsigned long last_read_millis;
+	bool waiting_on_conversion;
+	unsigned long start_conversion_millis;
+	bool had_devices;
+	int current_device;
+	uint8_t device_count;
+	struct ow_temp_device device[OW_TEMP_DEVICE_MAX];
+};
+
+static void ow_temp_scan(struct ow_temp *temp, unsigned int interval)
+{
+	unsigned long now = millis();
+	DeviceAddress address;
+
+	if (temp->last_read_millis &&
+	    (now - temp->last_read_millis < interval))
+		return;
+
+	memset(temp, 0, sizeof(*temp));
+	oneWire.reset_search();
+	while (oneWire.search(address)) {
+		if (OneWire::crc8(address, 7) != address[7] ||
+		    temp->device_count == OW_TEMP_DEVICE_MAX)
+			continue;
+		memcpy(temp->device[temp->device_count++].address, address,
+		       sizeof(address));
+	}
+	if (temp->device_count) {
+		temp->read_in_progress = true;
+		temp->had_devices = true;
+	} else if (temp->had_devices) {
+		ow_temp_init();
+	}
+}
+
+static bool ow_temp_device_next(struct ow_temp *temp)
+{
+	unsigned long now = millis();
+
+	temp->current_device++;
+	if (temp->device_count == temp->current_device) {
+		temp->read_in_progress = false;
+		temp->last_read_millis = now;
+		return false;
+	}
+	return true;
+}
+
+static void ow_temp_conversion_start(struct ow_temp *temp)
+{
+	while (!sensors.requestTemperaturesByAddress(temp->device[temp->current_device].address)) {
+		if (!ow_temp_device_next(temp))
+			return;
+	}
+	temp->waiting_on_conversion = true;
+	temp->start_conversion_millis = millis();;
+}
+
+char *ow_temp_topic(DeviceAddress deviceAddress)
+{
+	int offset = 0;
+	int i;
+
+	offset = snprintf(tmp_buf, TMP_BUF_LEN, "%s/temp/", name);
+	for (i = 0; i < 8; i++)
+		offset += snprintf(tmp_buf + offset, TMP_BUF_LEN - offset,
+				   "%02x", deviceAddress[i]);
+	Serial.println(tmp_buf);
+	return tmp_buf;
+}
+
+void ow_temp_publish(DeviceAddress deviceAddress, float temp_value)
+{
+	char temp_buf[16];
+
+//	sprintf(temp_buf, "%f", temp_value);
+	dtostrf(temp_value, 4, 2, temp_buf);
+	client.publish(ow_temp_topic(deviceAddress), temp_buf);
+}
+
+#define OW_TEMP_CONVERSION_TIMEOUT 950
+
+static void ow_temp_conversion_wait_check(struct ow_temp *temp)
+{
+	unsigned long now = millis();
+	float temp_value;
+
+	if (!sensors.isConversionComplete()) {
+		if (now - temp->start_conversion_millis > OW_TEMP_CONVERSION_TIMEOUT)
+			goto next;
+		return;
+	}
+
+	temp_value = sensors.getTempC(temp->device[temp->current_device].address);
+	if (temp_value != DEVICE_DISCONNECTED_C)
+		ow_temp_publish(temp->device[temp->current_device].address,
+				temp_value);
+
+next:
+	temp->waiting_on_conversion = false;
+	ow_temp_device_next(temp);
+}
+
+static void ow_temp_process(struct ow_temp *temp, unsigned int interval)
+{
+	if (!temp->read_in_progress)
+		ow_temp_scan(temp, interval);
+	else {
+		if (!temp->waiting_on_conversion)
+			ow_temp_conversion_start(temp);
+		else
+			ow_temp_conversion_wait_check(temp);
+	}
+}
+
+static struct ow_temp ow_temp;
+
 void print_ip(IPAddress ip)
 {
 	int i;
@@ -469,13 +608,14 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0xf17ac813;
+uint32_t eeprom_magic = 0x1e8aa83b;
 char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
 IPAddress eeprom_default_mqttip = IPAddress(172, 22, 1, 1);
 uint8_t eeprom_default_filter = 16;
 uint8_t eeprom_default_threshold = 16;
+uint32_t eeprom_default_temp_interval = 60000;
 #define EEPROM_FILTER_MAX 32
 #define EEPROM_THRESHOLD_MAX 128
 
@@ -503,6 +643,9 @@ uint8_t eeprom_default_threshold = 16;
 #define EEPROM_THRESHOLD_OFFSET EEPROM_FILTER_OFFSET + EEPROM_FILTER_SIZE
 #define EEPROM_THRESHOLD_SIZE sizeof(eeprom_default_threshold)
 
+#define EEPROM_TEMP_INTERVAL_OFFSET EEPROM_THRESHOLD_OFFSET + EEPROM_THRESHOLD_SIZE
+#define EEPROM_TEMP_INTERVAL_SIZE sizeof(eeprom_default_temp_interval)
+
 void eeprom_check(void)
 {
 	uint32_t magic;
@@ -519,6 +662,7 @@ void eeprom_check(void)
 	EEPROM.put(EEPROM_MQTTIP_OFFSET, eeprom_default_mqttip);
 	EEPROM.put(EEPROM_FILTER_OFFSET, eeprom_default_filter);
 	EEPROM.put(EEPROM_THRESHOLD_OFFSET, eeprom_default_threshold);
+	EEPROM.put(EEPROM_TEMP_INTERVAL_OFFSET, eeprom_default_temp_interval);
 }
 
 void payload_mac_to_eeprom(int offset, int size, byte *payload, int length)
@@ -577,6 +721,10 @@ void callback(char *topic, byte *payload, unsigned int length)
 
 		if (threshold < EEPROM_THRESHOLD_MAX)
 			EEPROM.put(EEPROM_THRESHOLD_OFFSET, threshold);
+	} else if (!strcmp(topic, config_topic("temp_interval"))) {
+		uint32_t temp_interval = strtol((const char *) payload, NULL, 10);
+
+		EEPROM.put(EEPROM_TEMP_INTERVAL_OFFSET, temp_interval);
 	} else {
 		pins_msg_process(topic, (const char *) payload);
 	}
@@ -622,8 +770,13 @@ void setup(void)
 	Serial.print("THRESHOLD:");
 	Serial.println(input_threshold);
 
+	EEPROM.get(EEPROM_TEMP_INTERVAL_OFFSET, temp_interval);
+	Serial.print("TEMP_INTERVAL:");
+	Serial.println(temp_interval);
+
 	Ethernet.begin(mac, ip);
 	pins_init();
+	ow_temp_init();
 
 	client.setServer(mqttip, 1883);
 	client.setCallback(callback);
@@ -660,12 +813,14 @@ void loop(void)
 				client.subscribe(config_topic("mqttip"));
 				client.subscribe(config_topic("filter"));
 				client.subscribe(config_topic("threshold"));
+				client.subscribe(config_topic("temp_interval"));
 				pins_subscribe();
 			}
 		}
 	} else {
 		input_pins_update_state();
 		input_pins_publish(true);
+		ow_temp_process(&ow_temp, temp_interval);
 		client.loop();
 	}
 }
