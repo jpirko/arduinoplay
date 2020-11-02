@@ -193,7 +193,7 @@ bool pin_type_output(struct pin *pin)
 	.pin = MY_CONTROLLINO_AI##_index,						\
 },
 
-#if 1
+#if 0
 /* values: 0 - 1023 */
 #define PIN_ANALOG_INPUT(_index) {							\
 	.type = PIN_TYPE_ANALOG_INPUT,							\
