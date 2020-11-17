@@ -266,7 +266,6 @@ void callback(char *topic, byte *payload, unsigned int length)
 {
 	payload[length] = '\0';
 
-	Serial.println("callback");
 	digitalWrite(LED_BUILTIN, HIGH);
 	if (!strcmp(topic, config_topic("name"))) {
 		str_to_eeprom(EEPROM_NAME_OFFSET, EEPROM_NAME_SIZE,
