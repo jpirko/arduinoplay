@@ -608,7 +608,7 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0x1e8aa83b;
+uint32_t eeprom_magic = 0x4a91cf1a;
 char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
@@ -715,12 +715,12 @@ void callback(char *topic, byte *payload, unsigned int length)
 		uint32_t filter = strtol((const char *) payload, NULL, 10);
 
 		if (filter < EEPROM_FILTER_MAX)
-			EEPROM.put(EEPROM_FILTER_OFFSET, filter);
+			EEPROM.put(EEPROM_FILTER_OFFSET, (uint8_t) filter);
 	} else if (!strcmp(topic, config_topic("threshold"))) {
 		uint32_t threshold = strtol((const char *) payload, NULL, 10);
 
 		if (threshold < EEPROM_THRESHOLD_MAX)
-			EEPROM.put(EEPROM_THRESHOLD_OFFSET, threshold);
+			EEPROM.put(EEPROM_THRESHOLD_OFFSET, (uint8_t) threshold);
 	} else if (!strcmp(topic, config_topic("temp_interval"))) {
 		uint32_t temp_interval = strtol((const char *) payload, NULL, 10);
 
