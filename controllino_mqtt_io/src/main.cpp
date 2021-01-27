@@ -64,6 +64,7 @@ struct pin {
 	uint8_t new_state_cnt;
 	word old_state;
 	word state;
+	unsigned long on_millis;
 };
 
 /* It is not possible to control D20-D23 using digitalWrite()
@@ -372,6 +373,7 @@ void input_pins_update_state()
 uint8_t input_filter;
 uint8_t input_threshold;
 uint32_t temp_interval;
+uint32_t emerg_off_timeout;
 
 void input_pins_publish(bool changed_only)
 {
@@ -409,24 +411,52 @@ void input_pins_publish(bool changed_only)
 	}
 }
 
+#define NEW_STATE_EMERG_OFF_MAGIC 0x11
+
+void pin_state_set(struct pin *pin)
+{
+	if (is_port_pin(pin->pin))
+		port_digitalWrite(pin->pin, pin->state);
+	else
+		digitalWrite(pin->pin, pin->state);
+}
+
 void output_pin_update_state(struct pin *pin, word new_state)
 {
-	if (pin->state == new_state)
-		return;
 	pin->state = new_state;
 	switch (pin->type) {
 	case PIN_TYPE_RELAY: /* fall-through */
 	case PIN_TYPE_DIGITAL_OUTPUT:
-		if (is_port_pin(pin->pin))
-			port_digitalWrite(pin->pin, pin->state);
-		else
-			digitalWrite(pin->pin, pin->state);
+		pin_state_set(pin);
+		if (new_state == NEW_STATE_EMERG_OFF_MAGIC)
+			pin->on_millis = millis();
 		break;
 	case PIN_TYPE_PWM_OUTPUT:
 		analogWrite(pin->pin, pin->state);
 		break;
 	default:
 		break;
+	}
+}
+
+void pins_emerg_off_timeout_check(unsigned long now, uint32_t timeout)
+{
+	struct pin *pin;
+	unsigned int i;
+
+	for_each_pin(pin, i) {
+		switch (pin->type) {
+		case PIN_TYPE_RELAY: /* fall-through */
+		case PIN_TYPE_DIGITAL_OUTPUT: /* fall-through */
+			if (pin->state == NEW_STATE_EMERG_OFF_MAGIC &&
+			    pin->on_millis + timeout < now) {
+				pin->state = 0;
+				pin_state_set(pin);
+			}
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -608,7 +638,7 @@ void print_ip(IPAddress ip)
 	Serial.println();
 }
 
-uint32_t eeprom_magic = 0x4a91cf1a;
+uint32_t eeprom_magic = 0xa511c31c;
 char eeprom_default_name[] = "test";
 byte eeprom_default_mac[] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 IPAddress eeprom_default_ip = IPAddress(172, 22, 1, 10);
@@ -616,6 +646,7 @@ IPAddress eeprom_default_mqttip = IPAddress(172, 22, 1, 1);
 uint8_t eeprom_default_filter = 16;
 uint8_t eeprom_default_threshold = 16;
 uint32_t eeprom_default_temp_interval = 60000;
+uint32_t eeprom_default_emerg_off_timeout = 30000;
 #define EEPROM_FILTER_MAX 32
 #define EEPROM_THRESHOLD_MAX 128
 
@@ -646,6 +677,9 @@ uint32_t eeprom_default_temp_interval = 60000;
 #define EEPROM_TEMP_INTERVAL_OFFSET EEPROM_THRESHOLD_OFFSET + EEPROM_THRESHOLD_SIZE
 #define EEPROM_TEMP_INTERVAL_SIZE sizeof(eeprom_default_temp_interval)
 
+#define EEPROM_EMERG_OFF_TIMEOUT_OFFSET EEPROM_TEMP_INTERVAL_OFFSET + EEPROM_TEMP_INTERVAL_SIZE
+#define EEPROM_EMERG_OFF_TIMEOUT_SIZE sizeof(eeprom_default_emerg_off_timeout)
+
 void eeprom_check(void)
 {
 	uint32_t magic;
@@ -663,6 +697,7 @@ void eeprom_check(void)
 	EEPROM.put(EEPROM_FILTER_OFFSET, eeprom_default_filter);
 	EEPROM.put(EEPROM_THRESHOLD_OFFSET, eeprom_default_threshold);
 	EEPROM.put(EEPROM_TEMP_INTERVAL_OFFSET, eeprom_default_temp_interval);
+	EEPROM.put(EEPROM_EMERG_OFF_TIMEOUT_OFFSET, eeprom_default_emerg_off_timeout);
 }
 
 void payload_mac_to_eeprom(int offset, int size, byte *payload, int length)
@@ -725,6 +760,10 @@ void callback(char *topic, byte *payload, unsigned int length)
 		uint32_t temp_interval = strtol((const char *) payload, NULL, 10);
 
 		EEPROM.put(EEPROM_TEMP_INTERVAL_OFFSET, temp_interval);
+	} else if (!strcmp(topic, config_topic("emerg_off_timeout"))) {
+		uint32_t emerg_off_timeout = strtol((const char *) payload, NULL, 10);
+
+		EEPROM.put(EEPROM_EMERG_OFF_TIMEOUT_OFFSET, emerg_off_timeout);
 	} else {
 		pins_msg_process(topic, (const char *) payload);
 	}
@@ -774,6 +813,10 @@ void setup(void)
 	Serial.print("TEMP_INTERVAL:");
 	Serial.println(temp_interval);
 
+	EEPROM.get(EEPROM_EMERG_OFF_TIMEOUT_OFFSET, emerg_off_timeout);
+	Serial.print("EMERG_OFF_TIMEOUT:");
+	Serial.println(emerg_off_timeout);
+
 	Ethernet.begin(mac, ip);
 	pins_init();
 	ow_temp_init();
@@ -814,6 +857,7 @@ void loop(void)
 				client.subscribe(config_topic("filter"));
 				client.subscribe(config_topic("threshold"));
 				client.subscribe(config_topic("temp_interval"));
+				client.subscribe(config_topic("emerg_off_timeout"));
 				pins_subscribe();
 			}
 		}
@@ -823,4 +867,5 @@ void loop(void)
 		ow_temp_process(&ow_temp, temp_interval);
 		client.loop();
 	}
+	pins_emerg_off_timeout_check(now, emerg_off_timeout);
 }
