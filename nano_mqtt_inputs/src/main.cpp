@@ -19,7 +19,7 @@
 
 #include "Arduino.h"
 #include <SPI.h>
-#include <UIPEthernet.h>
+#include <Ethernet.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 
