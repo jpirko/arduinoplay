@@ -100,7 +100,7 @@ char tmp_buf[TMP_BUF_LEN];
 
 char *pin_topic(struct pin *pin)
 {
-	snprintf(tmp_buf, TMP_BUF_LEN, "%s/%s/%d", name,
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/%s%d", name,
 		 pin_type_subtopic[pin->type], pin->index);
 	return tmp_buf;
 }
