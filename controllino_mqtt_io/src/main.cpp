@@ -1,6 +1,6 @@
 /*
  * Controllino: MQTT I/O client
- * Copyright (c) 2018-2020 Jiri Pirko <jiri@resnulli.us>
+ * Copyright (c) 2018-2021 Jiri Pirko <jiri@resnulli.us>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -489,6 +489,71 @@ void pins_init(void)
 	}
 }
 
+char *temp_serial_topic(char *device_address)
+{
+	snprintf(tmp_buf, TMP_BUF_LEN, "%s/temp/%s", name, device_address);
+	return tmp_buf;
+}
+
+void temp_publish(char *device_address, char *temp_value)
+{
+	client.publish(temp_serial_topic(device_address), temp_value);
+}
+
+static unsigned long temp_serial_last_attempt;
+
+enum temp_serial_state {
+	TEMP_SERIAL_STATE_START_SPACE_WAIT,
+	TEMP_SERIAL_STATE_READING_DEVICE_ADDRESS,
+	TEMP_SERIAL_STATE_READING_TEMP_VALUE,
+};
+
+void temp_serial_process(unsigned long now)
+{
+	static enum temp_serial_state state;
+	static char device_address[17];
+	static char temp_value[6];
+	static unsigned int i;
+	char c;
+
+	if (!Serial2.available()) {
+		if (!temp_serial_last_attempt ||
+		    temp_serial_last_attempt + temp_interval < now ||
+		    temp_serial_last_attempt > now) {
+			temp_serial_last_attempt = now;
+			Serial2.write("a"); /* write any char */
+		}
+		return;
+	}
+	c = Serial2.read();
+	switch (state) {
+	case TEMP_SERIAL_STATE_START_SPACE_WAIT:
+		if (c == ' ') {
+			state = TEMP_SERIAL_STATE_READING_DEVICE_ADDRESS;
+			memset(device_address, 0, sizeof(device_address));
+			i = 0;
+		}
+		break;
+	case TEMP_SERIAL_STATE_READING_DEVICE_ADDRESS:
+		if (c == ' ') {
+			state = TEMP_SERIAL_STATE_READING_TEMP_VALUE;
+			memset(temp_value, 0, sizeof(temp_value));
+			i = 0;
+		} else if (i < sizeof(device_address)) {
+			device_address[i++] = c;
+		}
+		break;
+	case TEMP_SERIAL_STATE_READING_TEMP_VALUE:
+		if (c == '\r') {
+			state = TEMP_SERIAL_STATE_START_SPACE_WAIT;
+			temp_publish(device_address, temp_value);
+		} else if (i < sizeof(temp_value)) {
+			temp_value[i++] = c;
+		}
+		break;
+	}
+}
+
 void print_ip(IPAddress ip)
 {
 	int i;
@@ -642,6 +707,8 @@ void setup(void)
 	Serial.begin(9600);
 	Serial.println("MQTTIO");
 
+	Serial2.begin(9600);
+
 	eeprom_check();
 
 	EEPROM.get(EEPROM_NAME_OFFSET, name);
@@ -727,6 +794,7 @@ void loop(void)
 		input_pins_update_state();
 		input_pins_publish(true);
 		client.loop();
+		temp_serial_process(now);
 	}
 	pins_emerg_off_timeout_check(now, emerg_off_timeout);
 }
