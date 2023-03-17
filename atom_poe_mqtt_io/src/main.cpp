@@ -135,7 +135,7 @@ void pin_publish(struct pin *pin)
 	char state_buf[16];
 
 	sprintf(state_buf, "%u", pin->state);
-	client.publish(pin_topic(pin), state_buf);
+	client.publish(pin_topic(pin), state_buf, true);
 }
 
 void input_pins_update_state()
