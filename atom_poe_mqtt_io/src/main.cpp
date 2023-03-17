@@ -371,6 +371,9 @@ bool check_pin_flavours_to_eeprom(char *topic, byte *payload,
 		if (strcmp(topic, pin_config_topic(pin)))
 			continue;
 		if (!strcmp((const char *) payload,
+			    pin_flavour_subtopic[PIN_FLAVOUR_DISABLED]))
+			pin_flavours.pin_flavours[i] = PIN_FLAVOUR_DISABLED;
+		else if (!strcmp((const char *) payload,
 			    pin_flavour_subtopic[PIN_FLAVOUR_DIGITAL_INPUT]))
 			pin_flavours.pin_flavours[i] = PIN_FLAVOUR_DIGITAL_INPUT;
 		else if (!strcmp((const char *) payload,
