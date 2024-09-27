@@ -356,7 +356,7 @@ void eeprom_check(void)
 #define MB_PIN_TEMP_ID_1_IREG(pin) __MB_PIN_TEMP_IREG(pin, 4)
 #define MB_PIN_TEMP_ID_2_IREG(pin) __MB_PIN_TEMP_IREG(pin, 5)
 #define MB_PIN_TEMP_ID_3_IREG(pin) __MB_PIN_TEMP_IREG(pin, 6)
-#define MB_PIN_TEMP_UNUSED_IREG(pin) __MB_PIN_TEMP_IREG(pin, 7)
+#define MB_PIN_TEMP_PIN_IREG(pin) __MB_PIN_TEMP_IREG(pin, 7)
 
 #define MB_SERIAL Serial
 #define MB_SERIAL_BAUDRATE 9600
@@ -385,7 +385,7 @@ static void mb_pin_init(struct pin *pin)
 	mb.addIreg(MB_PIN_TEMP_ID_1_IREG(pin), 0);
 	mb.addIreg(MB_PIN_TEMP_ID_2_IREG(pin), 0);
 	mb.addIreg(MB_PIN_TEMP_ID_3_IREG(pin), 0);
-	mb.addIreg(MB_PIN_TEMP_UNUSED_IREG(pin), 0);
+	mb.addIreg(MB_PIN_TEMP_PIN_IREG(pin), 0);
 }
 
 static void mb_pin_update(struct pin *pin)
@@ -402,6 +402,7 @@ static void mb_pin_update(struct pin *pin)
 		mb.Ireg(MB_PIN_TEMP_ID_1_IREG(pin), 0);
 		mb.Ireg(MB_PIN_TEMP_ID_2_IREG(pin), 0);
 		mb.Ireg(MB_PIN_TEMP_ID_3_IREG(pin), 0);
+		mb.Ireg(MB_PIN_TEMP_PIN_IREG(pin), 0);
 		return;
 	}
 
@@ -414,7 +415,9 @@ static void mb_pin_update(struct pin *pin)
 	mb.Ireg(MB_PIN_TEMP_ID_1_IREG(pin), tmp[1]);
 	mb.Ireg(MB_PIN_TEMP_ID_2_IREG(pin), tmp[2]);
 	mb.Ireg(MB_PIN_TEMP_ID_3_IREG(pin), tmp[3]);
-	
+
+	mb.Ireg(MB_PIN_TEMP_PIN_IREG(pin), pin->pin);
+
 	mb.Ireg(MB_PIN_TEMP_VALID_IREG(pin), 1);
 }
 
